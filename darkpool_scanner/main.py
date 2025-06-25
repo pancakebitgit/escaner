@@ -167,19 +167,59 @@ def main():
         print("\nNo se detectó actividad de dark pool o no se procesaron archivos válidamente.")
         return
 
-    final_df = pd.concat(all_dark_pool_results).reset_index()
+    # Concatenar todos los DataFrames de resultados individuales
+    final_df = pd.concat(all_dark_pool_results)
 
-    # Reordenar columnas
-    # El nombre de la columna para la fecha del segundo archivo ahora es 'FileDate_D_Future'
-    cols_order = ['FileDate_D1', 'FileDate_D_Future', 'ContractIdentifier']
-    # Añadir las columnas de datos restantes, asegurándose de que existen antes de añadirlas
-    data_cols = [c for c in ['Volume_D1', 'OpenInt_D1', 'OpenInt_D2', 'DarkPoolActivity'] if c in final_df.columns]
-    cols_order.extend(data_cols)
-    # Añadir cualquier otra columna que pudiera existir (aunque no debería con la lógica actual)
-    other_cols = [c for c in final_df.columns if c not in cols_order]
-    cols_order.extend(other_cols)
+    # Asegurarse de que ContractIdentifier, si es índice, se mueva a columna.
+    # Esto es crucial porque detect_dark_pool_activity devuelve DF con ContractIdentifier como índice.
+    # Y el .iterrows() sobre processed_d1 también usa el índice.
+    if final_df.index.name == 'ContractIdentifier' or 'ContractIdentifier' not in final_df.columns:
+        final_df = final_df.reset_index()
 
-    final_df = final_df[cols_order]
+    # Debug: Imprimir columnas e índice para verificar antes de reordenar
+    # print("\nDebug: Columnas de final_df ANTES de reordenar:", final_df.columns)
+    # print("Debug: Índice de final_df ANTES de reordenar:", final_df.index)
+    # print(final_df.head())
+
+    # Reordenar columnas de una manera más robusta
+    cols_order = []
+
+    # Columnas de identificación esperadas
+    id_cols = ['FileDate_D1', 'FileDate_D_Future', 'ContractIdentifier']
+    for col in id_cols:
+        if col in final_df.columns:
+            cols_order.append(col)
+        # else:
+            # print(f"Advertencia de reordenamiento: La columna de ID '{col}' no está en final_df.")
+
+    # Columnas de datos esperadas
+    data_cols_expected = ['Volume_D1', 'OpenInt_D1', 'OpenInt_D2', 'DarkPoolActivity']
+    for col in data_cols_expected:
+        if col in final_df.columns:
+            cols_order.append(col)
+        # else:
+            # print(f"Advertencia de reordenamiento: La columna de datos '{col}' no está en final_df.")
+
+    # Añadir cualquier otra columna que no haya sido explícitamente listada, al final
+    for col in final_df.columns:
+        if col not in cols_order:
+            cols_order.append(col)
+
+    # Aplicar el orden de columnas solo si todas las columnas en cols_order existen en final_df
+    # o filtrar cols_order para que solo contenga columnas existentes.
+    # Para evitar KeyErrors, es más seguro filtrar cols_order.
+    actual_cols_order = [col for col in cols_order if col in final_df.columns]
+
+    try:
+        final_df = final_df[actual_cols_order]
+    except KeyError as e:
+        print(f"\nError al intentar reordenar las columnas. Esto no debería ocurrir si actual_cols_order se filtró correctamente.")
+        print(f"Columnas intentadas: {actual_cols_order}")
+        print(f"Columnas disponibles: {list(final_df.columns)}")
+        print(f"Error original: {e}")
+        # Decidir si retornar o continuar con el DataFrame sin el orden preferido
+        # Por ahora, continuaremos, pero el orden podría no ser el ideal.
+        pass
 
 
     print("\n--- Resultados Finales de Actividad de Dark Pool ---")
