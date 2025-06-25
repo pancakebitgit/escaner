@@ -116,43 +116,65 @@ ContractE,E,50,P,500,30,300,10:10:00 ET
         self.assertEqual(contract_e_d2["OpenInt_D2"], 300)
 
     def test_detect_dark_pool_activity(self):
-        # Caso 1: Datos válidos con actividad detectada
+        # Fórmula corregida: OpenInt_D2 - (Volume_D1 + OpenInt_D1)
+
+        # Caso 1: Datos válidos, algunos con actividad de dark pool
+        # ContractA: D2_OI=130, D1_V=10, D1_OI=100. SumaD1=110. Actividad = 130 - 110 = 20 (>0)
+        # ContractB: D2_OI=60, D1_V=5, D1_OI=50. SumaD1=55. Actividad = 60 - 55 = 5 (>0)
+        # ContractC: D2_OI=200, D1_V=20, D1_OI=170. SumaD1=190. Actividad = 200 - 190 = 10 (>0)
+        # ContractX (solo en D1): No aparecerá en 'inner' join.
+        # ContractY (OpenInt_D1 es NA): Será dropeado por dropna.
         d1_proc_data = {
-            'Volume_D1': [15.0, 5.0, 0.0], # ContractA, ContractB, ContractC
-            'OpenInt_D1': [110.0, 50.0, pd.NA] # ContractC OpenInt es NA
+            'Volume_D1':  [10.0, 5.0, 20.0, 30.0, 0.0],
+            'OpenInt_D1': [100.0, 50.0, 170.0, 200.0, pd.NA]
         }
-        idx1 = pd.Index(["ContractA", "ContractB", "ContractC"], name="ContractIdentifier")
+        idx1 = pd.Index(["ContractA", "ContractB", "ContractC", "ContractX", "ContractY"], name="ContractIdentifier")
         df_d1_processed = pd.DataFrame(d1_proc_data, index=idx1)
 
+        # ContractA: D2_OI=130
+        # ContractB: D2_OI=60
+        # ContractC: D2_OI=200
+        # ContractZ (solo en D2): No aparecerá en 'inner' join.
+        # ContractY: D2_OI=50 (pero D1 tiene NA, así que se dropeará)
         d2_proc_data = {
-            'OpenInt_D2': [120.0, 60.0, 300.0] # ContractA, ContractB, ContractE
+            'OpenInt_D2': [130.0, 60.0, 200.0, 300.0, 50.0]
         }
-        idx2 = pd.Index(["ContractA", "ContractB", "ContractE"], name="ContractIdentifier")
+        idx2 = pd.Index(["ContractA", "ContractB", "ContractC", "ContractZ", "ContractY"], name="ContractIdentifier")
         df_d2_processed = pd.DataFrame(d2_proc_data, index=idx2)
 
         dark_pool_trades = detect_dark_pool_activity(df_d1_processed, df_d2_processed)
         self.assertIsNotNone(dark_pool_trades)
-        self.assertEqual(len(dark_pool_trades), 1) # Solo ContractA debería tener actividad
 
-        # ContractA: (15 + 110) - 120 = 125 - 120 = 5
+        # Esperamos 3 trades de dark pool (A, B, C)
+        self.assertEqual(len(dark_pool_trades), 3)
+
         self.assertIn("ContractA", dark_pool_trades.index)
-        self.assertEqual(dark_pool_trades.loc["ContractA"]["DarkPoolActivity"], 5)
+        self.assertEqual(dark_pool_trades.loc["ContractA"]["DarkPoolActivity"], 20)
 
-        # ContractB: (5 + 50) - 60 = 55 - 60 = -5 (no es > 0)
-        self.assertNotIn("ContractB", dark_pool_trades.index)
-        # ContractC no está en df_d2_processed
-        # ContractE no está en df_d1_processed
+        self.assertIn("ContractB", dark_pool_trades.index)
+        self.assertEqual(dark_pool_trades.loc["ContractB"]["DarkPoolActivity"], 5)
 
-        # Caso 2: Sin actividad de dark pool
+        self.assertIn("ContractC", dark_pool_trades.index)
+        self.assertEqual(dark_pool_trades.loc["ContractC"]["DarkPoolActivity"], 10)
+
+        self.assertNotIn("ContractX", dark_pool_trades.index)
+        self.assertNotIn("ContractY", dark_pool_trades.index)
+        self.assertNotIn("ContractZ", dark_pool_trades.index)
+
+
+        # Caso 2: Sin actividad de dark pool (resultado negativo o cero)
+        # ContractP: D2_OI=100, D1_V=10, D1_OI=100. SumaD1=110. Actividad = 100 - 110 = -10 (no >0)
+        # ContractQ: D2_OI=50, D1_V=5, D1_OI=45. SumaD1=50. Actividad = 50 - 50 = 0 (no >0)
         d1_proc_data_no_activity = {
-            'Volume_D1': [10.0], 'OpenInt_D1': [100.0]
+            'Volume_D1': [10.0, 5.0],
+            'OpenInt_D1': [100.0, 45.0]
         }
-        df_d1_no_activity = pd.DataFrame(d1_proc_data_no_activity, index=pd.Index(["ContractX"], name="ContractIdentifier"))
+        df_d1_no_activity = pd.DataFrame(d1_proc_data_no_activity, index=pd.Index(["ContractP", "ContractQ"], name="ContractIdentifier"))
 
         d2_proc_data_no_activity = {
-            'OpenInt_D2': [120.0] # (10+100) - 120 = -10
+            'OpenInt_D2': [100.0, 50.0]
         }
-        df_d2_no_activity = pd.DataFrame(d2_proc_data_no_activity, index=pd.Index(["ContractX"], name="ContractIdentifier"))
+        df_d2_no_activity = pd.DataFrame(d2_proc_data_no_activity, index=pd.Index(["ContractP", "ContractQ"], name="ContractIdentifier"))
 
         no_dark_pool = detect_dark_pool_activity(df_d1_no_activity, df_d2_no_activity)
         self.assertTrue(no_dark_pool.empty)
