@@ -164,7 +164,9 @@ def detect_dark_pool_activity(df_day1_processed: pd.DataFrame | None, df_day2_pr
     if merged_df.empty:
         return pd.DataFrame()
 
-    merged_df['DarkPoolActivity'] = (merged_df['Volume_D1'] + merged_df['OpenInt_D1']) - merged_df['OpenInt_D2']
+    # Fórmula corregida: OpenInt_D2 - (Volume_D1 + OpenInt_D1)
+    merged_df['DarkPoolActivity'] = merged_df['OpenInt_D2'] - (merged_df['Volume_D1'] + merged_df['OpenInt_D1'])
+
     dark_pool_trades = merged_df[merged_df['DarkPoolActivity'] > 0].copy()
 
     # Devolver solo las columnas relevantes, incluyendo el ContractIdentifier que es el índice.
